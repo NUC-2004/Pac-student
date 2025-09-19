@@ -1,10 +1,13 @@
 fileFormatVersion: 2
-guid: 7c30c18905e3f3f4bb26171661258534
+guid: 9a6557ececc87874688243fc2cd57174
 TextureImporter:
   internalIDToNameTable:
   - first:
-      213: 2856965592516061604
-    second: OutWall_0
+      213: -7740977967958488598
+    second: GhostRecovering_0
+  - first:
+      213: -6346050336913416010
+    second: GhostRecovering_1
   externalObjects: {}
   serializedVersion: 13
   mipmaps:
@@ -37,7 +40,7 @@ TextureImporter:
   maxTextureSize: 2048
   textureSettings:
     serializedVersion: 2
-    filterMode: 1
+    filterMode: 0
     aniso: 1
     mipBias: 0
     wrapU: 1
@@ -51,7 +54,7 @@ TextureImporter:
   spriteMeshType: 1
   alignment: 0
   spritePivot: {x: 0.5, y: 0.5}
-  spritePixelsToUnits: 100
+  spritePixelsToUnits: 16
   spriteBorder: {x: 0, y: 0, z: 0, w: 0}
   spriteGenerateFallbackPhysicsShape: 1
   alphaUsage: 1
@@ -75,7 +78,7 @@ TextureImporter:
     maxTextureSize: 2048
     resizeAlgorithm: 0
     textureFormat: -1
-    textureCompression: 1
+    textureCompression: 0
     compressionQuality: 50
     crunchedCompression: 0
     allowsAlphaSplitting: 0
@@ -100,13 +103,13 @@ TextureImporter:
     serializedVersion: 2
     sprites:
     - serializedVersion: 2
-      name: OutWall_0
+      name: GhostRecovering_0
       rect:
         serializedVersion: 2
-        x: 0
-        y: 0
-        width: 16
-        height: 16
+        x: 3
+        y: 20
+        width: 11
+        height: 10
       alignment: 0
       pivot: {x: 0, y: 0}
       border: {x: 0, y: 0, z: 0, w: 0}
@@ -114,8 +117,29 @@ TextureImporter:
       physicsShape: []
       tessellationDetail: -1
       bones: []
-      spriteID: 4a9ee6dc11bf5a720800000000000000
-      internalID: 2856965592516061604
+      spriteID: ae985b53d85829490800000000000000
+      internalID: -7740977967958488598
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: GhostRecovering_1
+      rect:
+        serializedVersion: 2
+        x: 3
+        y: 4
+        width: 11
+        height: 10
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: 6b0278567dc4ee7a0800000000000000
+      internalID: -6346050336913416010
       vertices: []
       indices: 
       edges: []
@@ -131,7 +155,8 @@ TextureImporter:
     weights: []
     secondaryTextures: []
     nameFileIdTable:
-      OutWall_0: 2856965592516061604
+      GhostRecovering_0: -7740977967958488598
+      GhostRecovering_1: -6346050336913416010
   mipmapLimitGroupName: 
   pSDRemoveMatte: 0
   userData: 
