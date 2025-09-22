@@ -9,10 +9,10 @@ public class PacStudentMovement : MonoBehaviour
 
     private Vector3[] waypoints = new Vector3[]
     {
-        new Vector3(-12.54f, 13.47f, 0f), 
-        new Vector3( -7.45f, 13.41f, 0f),  
-         new Vector3(-7.44f, 9.52f, 0f), 
-        new Vector3( -12.41f, 9.49f, 0f)
+        new Vector3(-6.04f, 13.8f, 0f), 
+        new Vector3( -0.91f, 13.93f, 0f),  
+         new Vector3(-0.91f, 9.87f, 0f), 
+        new Vector3( -5.91f, 9.87f, 0f)
          
     };
 
