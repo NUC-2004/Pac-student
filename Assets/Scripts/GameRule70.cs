@@ -2,101 +2,119 @@ using UnityEngine;
 using UnityEngine.SceneManagement;
 using System.Collections;
 
-/// <summary>
-/// 关卡规则（A4 要求）：
-/// - 统计场景中所有小豆/大力丸数量
-/// - 吃光后触发 Game Over（可显示HUD组），3秒后回到开始场景
-/// - 提供统一的“大力丸触发”入口，驱动幽灵受惊/恢复时间线
-/// - 记录高分与用时
-/// </summary>
 public class GameRule70 : MonoBehaviour
 {
     public static GameRule70 I;
 
+    // -------------------- Refs --------------------
     [Header("Refs")]
-    public PacStudentController player;        // 玩家（用于禁用控制、复位等）
-    public HUDController hud;                  // HUD（计分、受惊显示等）
-    public string startScene = "StartScene";   // Game Over 后返回的场景名
-    public GameObject gameOverGroup;           // HUD 上“Game Over + 遮罩”的父物体（可选）
+    public PacStudentController player;   // 玩家控制脚本
+    public LivesHeartsUI heartsUI;        // 左上角心形生命 UI（挂在 LivesPanel 上）
+    public HUDController hud;             // 可为空：若用旧的 HUD 计分
+    public string startScene = "StartScene";
+    public GameObject gameOverGroup;      // GameOver UI 组
 
-    [Header("Lives & Score")]
-    public int lives = 3;                      // 初始命（如需）
+    [Header("Audio")]
+    public AudioManager audioMgr;         // 统一音频管理（自动查找，亦可手动拖）
+    public AudioClip scaredMusic;         // 受惊 BGM
+    public AudioClip normalMusic;         // 普通 BGM
 
-    // —— 清关计数（只统计小豆+大力丸，不含樱桃等其他道具）——
-    int pelletLeft = 0;
+    [Header("Score / Life")]
+    public int lives = 3;                 // 初始生命（与心形数量一致即可）
 
-    [Header("Audio (optional)")]
-    public AudioManager audioMgr;              // 旧 AudioManager（可空）
-    public AudioClip scaredMusic;              // 受惊BGM（可空）
-    public AudioClip normalMusic;              // 普通BGM（可空）
+    [Header("Spawns")]
+    public Transform playerSpawn;         // 可选：玩家复活点（不填则回到关卡开局格）
 
-    // 受惊计时（≤3s 进入 Recovering）
-    float scaredEndTime = -1f;
+    // -------------------- Runtime --------------------
+    int pelletLeft = 0;                   // 剩余（小豆+大力丸）数量
+    float scaredEndTime = -1f;            // 受惊结束时间（<0 表示未受惊）
+    GhostController[] ghosts;             // 场景中的幽灵
+    int deadCount = 0;                    // Dead 计数（用于“最后一只复活时 BGM 兜底”）
 
-    // 幽灵集合（需你的 GhostController 实现具备下列方法/字段）
-    GhostController[] ghosts;
+    Vector2Int playerStartCell;           // 记录开局时玩家所在格（作为默认复活点）
 
+    // PlayerPrefs keys
+    const string KeyHighScore = "HighScore";
+    const string KeyBestTime = "BestTime";
+
+    // =========================================================
     void Awake()
     {
         I = this;
+        if (!audioMgr) audioMgr = FindObjectOfType<AudioManager>(true);
+        if (!heartsUI) heartsUI = FindObjectOfType<LivesHeartsUI>(true);
+        if (!player) player = FindObjectOfType<PacStudentController>(true);
     }
 
     void Start()
     {
+        // 自动再兜一层
+        if (!audioMgr) audioMgr = FindObjectOfType<AudioManager>(true);
+        if (!heartsUI) heartsUI = FindObjectOfType<LivesHeartsUI>(true);
+        if (!player) player = FindObjectOfType<PacStudentController>(true);
+
         ghosts = FindObjectsOfType<GhostController>(true);
 
-        // 场景启动：统计豆子总数（小豆 + 大力丸）
-        int pellets = FindObjectsOfType<PelletPickup>(true).Length;
-        int powers = FindObjectsOfType<PowerPelletPickup>(true).Length;
-        pelletLeft = pellets + powers;
+        // 全体幽灵回 Normal、标记从出生区重新出发
+        scaredEndTime = -1f;
+        if (ghosts != null)
+        {
+            foreach (var g in ghosts)
+            {
+                g.EnterNormal();
+                g.hasExitedSpawn = false;
+            }
+        }
+        HUDController.I?.StartScared(0f);
 
+        // 统计豆子总数（小豆+大力丸）
+        pelletLeft = FindObjectsOfType<PelletPickup>(true).Length
+                   + FindObjectsOfType<PowerPelletPickup>(true).Length;
+
+        // UI 初始化
         if (gameOverGroup) gameOverGroup.SetActive(false);
-        // 计时器（若你的 ScoreKeeper 里在别处启动，这里无需处理）
+        heartsUI?.SetLives(lives);
+
+        // 记录开局格（作为默认复活点）
+        if (player) playerStartCell = player.WorldToCell(player.transform.position);
+
+        // 开场播普通 BGM（兜底）
+        if (audioMgr && normalMusic) audioMgr.PlayBgm(normalMusic, true);
     }
 
-    // ===================== 大力丸（统一入口） =====================
+    // =========================================================
+    //                Pellet / PowerPellet
+    // =========================================================
+    public void OnPelletEaten()
+    {
+        pelletLeft = Mathf.Max(0, pelletLeft - 1);
+        if (pelletLeft == 0) GameOver();
+    }
 
-    /// <summary>
-    /// 玩家吃到大力丸时从 PowerPelletPickup 调用
-    /// 负责：+50 分、HUD受惊显示、驱动受惊状态、并计入清关-1
-    /// </summary>
     public void OnPowerPelletEaten()
     {
-        // 1) +50 分
+        // +50 分（兼容两种计分器）
         if (ScoreKeeper.I) ScoreKeeper.I.AddScore(50);
-        else hud?.AddScore(50); // 兜底
+        else hud?.AddScore(50);
 
-        // 2) HUD 显示受惊倒计时（例如 10 秒）
+        // SFX + 受惊状态
+        audioMgr?.PlayPowerPellet();
         HUDController.I?.StartScared(10f);
-
-        // 3) 所有幽灵进入 "Scared → (≤3s) Recovering → Normal" 时间线
         ScareAll(10f);
 
-        // 4) 作为清关项：-1
         OnPelletEaten();
     }
 
-    /// <summary>
-    /// 触发全体幽灵受惊，带音乐切换与时间线驱动
-    /// </summary>
     public void ScareAll(float duration = 10f)
     {
         scaredEndTime = Time.time + duration;
 
         if (ghosts != null)
-        {
             foreach (var g in ghosts) g.EnterScared();
-        }
 
-        // 切受惊 BGM（可选）
-        if (audioMgr && scaredMusic)
-        {
-            audioMgr.audioSource.loop = true;
-            audioMgr.audioSource.clip = scaredMusic;
-            audioMgr.audioSource.Play();
-        }
+        // 切受惊 BGM
+        if (audioMgr && scaredMusic) audioMgr.PlayBgm(scaredMusic, true);
 
-        // 协程驱动倒计时和状态回收
         StopAllCoroutines();
         StartCoroutine(CoScaredTimeline());
     }
@@ -107,144 +125,120 @@ public class GameRule70 : MonoBehaviour
         {
             float left = scaredEndTime - Time.time;
 
-            // ≤3 秒进入 Recovering
+            // 最后 3 秒进入 Recovering（仅视觉/逻辑提示）
             if (left <= 3f && ghosts != null)
-            {
                 foreach (var g in ghosts) g.EnterRecovering();
-            }
 
-            // HUD 的受惊剩余时间可在 HUD 自己的 Update 刷，这里不用重复
             yield return null;
         }
 
-        // 时间到：活着的幽灵回 Normal（Dead 保持）
+        // 受惊结束：活着的回 Normal（Dead 保持，等它们回到 Spawn 再复活）
         if (ghosts != null)
-        {
             foreach (var g in ghosts)
                 if (g.state != GhostState.Dead) g.EnterNormal();
-        }
 
-        // 切回普通 BGM（可选）
-        if (audioMgr && normalMusic)
-        {
-            audioMgr.audioSource.loop = true;
-            audioMgr.audioSource.clip = normalMusic;
-            audioMgr.audioSource.Play();
-        }
-
-        // 清除 HUD 受惊显示
         HUDController.I?.StartScared(0f);
         scaredEndTime = -1f;
+
+        // 切回普通 BGM
+        if (audioMgr && normalMusic) audioMgr.PlayBgm(normalMusic, true);
     }
 
-    /// <summary>
-    /// 获取受惊剩余时间（HUD 可读）
-    /// </summary>
-    public float ScaredTimeLeft() =>
-        Mathf.Max(0f, scaredEndTime < 0 ? 0f : (scaredEndTime - Time.time));
+    public float ScaredTimeLeft()
+    {
+        return Mathf.Max(0f, scaredEndTime < 0 ? 0f : scaredEndTime - Time.time);
+    }
 
-    // ===================== 幽灵碰到玩家 =====================
-
-    /// <summary>
-    /// 幽灵与玩家相撞（由幽灵或玩家在碰撞时调用）
-    /// </summary>
+    // =========================================================
+    //                Player  Ghost 碰撞裁决
+    // =========================================================
     public void OnGhostTouchPlayer(GhostController g)
     {
         if (g == null) return;
 
-        if (g.state == GhostState.Normal)
+        switch (g.state)
         {
-            // 玩家死亡一条命
-            StartCoroutine(CoPlayerDie());
-        }
-        else if (g.state == GhostState.Scared || g.state == GhostState.Recovering)
-        {
-            // 玩家吃幽灵 +300
-            if (ScoreKeeper.I) ScoreKeeper.I.AddScore(300);
-            else HUDController.I?.AddScore(300);
+            case GhostState.Normal:
+                StartCoroutine(CoPlayerDie());
+                break;
 
-            g.EnterDead();
+            case GhostState.Scared:
+            case GhostState.Recovering:
+                // 吃幽灵 +300 分 + SFX
+                if (ScoreKeeper.I) ScoreKeeper.I.AddScore(300);
+                else hud?.AddScore(300);
+                audioMgr?.PlayEatGhost();
+                g.EnterDead(); // 进入 Dead，直线回出生区
+                break;
+
+            case GhostState.Dead:
+                // Dead 忽略
+                break;
         }
-        // Dead 不处理
     }
 
     IEnumerator CoPlayerDie()
     {
         if (player != null) player.controlsEnabled = false;
 
-        // 可在此播放玩家死亡动画/粒子
         yield return new WaitForSeconds(0.5f);
 
+        // 扣命 & 同步心 UI
         lives = Mathf.Max(0, lives - 1);
+        heartsUI?.SetLives(lives);
 
-        // 重置玩家与幽灵到出生点/初始状态（注意替换为你的实际出生点）
+        // 复活到 PlayerSpawn（若未设则回到开局格）
         if (player != null)
         {
-            player.TeleportTo(player.CellToWorld(new Vector2Int(-12, 13)), Vector2Int.right);
-        }
-        if (ghosts != null)
-        {
-            foreach (var g in ghosts) g.ResetToStart();
+            Vector3 spawnPos = player.CellToWorld(playerStartCell); // 默认开局格
+            if (playerSpawn) spawnPos = player.SnapToCell(playerSpawn.position);
+            player.TeleportTo(spawnPos, Vector2Int.right);
         }
 
-        // 结束受惊状态 & 还原音乐
+        // 重置幽灵
+        if (ghosts != null)
+            foreach (var g in ghosts) g.ResetToStart();
+
+        // 受惊清空，全部回 Normal；切回普通 BGM
         scaredEndTime = -1f;
         StopAllCoroutines();
         if (ghosts != null)
-        {
             foreach (var g in ghosts) g.EnterNormal();
-        }
-        if (audioMgr && normalMusic)
-        {
-            audioMgr.audioSource.loop = true;
-            audioMgr.audioSource.clip = normalMusic;
-            audioMgr.audioSource.Play();
-        }
         HUDController.I?.StartScared(0f);
 
-        // 没命 => 直接 Game Over
-        if (lives <= 0)
-        {
-            GameOver();
-            yield break;
-        }
+        if (!audioMgr) audioMgr = FindObjectOfType<AudioManager>(true);
+        if (audioMgr && normalMusic) audioMgr.PlayBgm(normalMusic, true);
 
-        // 否则允许玩家继续（最简：立即解锁控制）
+        if (lives <= 0) { GameOver(); yield break; }
         if (player != null) player.controlsEnabled = true;
     }
 
-    // ===================== 清关计数（小豆/大力丸各-1） =====================
-
-    /// <summary>
-    /// 小豆或大力丸被吃掉时调用（由 Pellet 脚本触发）
-    /// </summary>
-    public void OnPelletEaten()
-    {
-        pelletLeft = Mathf.Max(0, pelletLeft - 1);
-
-        // 当剩余为 0 => Game Over（清关）
-        if (pelletLeft == 0) GameOver();
-    }
-
-    // ===================== Game Over 处理 =====================
-
+    // =========================================================
+    //                        Game Over
+    // =========================================================
     void GameOver()
     {
-        // 禁止玩家输入
         if (player != null) player.controlsEnabled = false;
+        if (ghosts != null) foreach (var g in ghosts) g.enabled = false;
 
-        // 停止幽灵逻辑
-        if (ghosts != null)
-            foreach (var g in ghosts) g.enabled = false;
-
-        // 显示 HUD 的 Game Over 组（可选）
         if (gameOverGroup) gameOverGroup.SetActive(true);
 
-        // 保存高分/最佳时间
         SaveHighScore();
 
-        // 3 秒后回到开始场景
+        // 归零显示（可选）
+        heartsUI?.SetLives(0);
+
+        // 切普通 BGM（兜底）
+        if (audioMgr && normalMusic) audioMgr.PlayBgm(normalMusic, true);
+
         StartCoroutine(CoBackToStart());
+    }
+
+    IEnumerator CoBackToStart()
+    {
+        yield return new WaitForSeconds(3f);
+        if (!string.IsNullOrEmpty(startScene))
+            SceneManager.LoadScene(startScene);
     }
 
     void SaveHighScore()
@@ -252,24 +246,33 @@ public class GameRule70 : MonoBehaviour
         int curScore = ScoreKeeper.I ? ScoreKeeper.I.Score : 0;
         float curTime = ScoreKeeper.I ? ScoreKeeper.I.Elapsed : 0f;
 
-        int oldScore = PlayerPrefs.GetInt("HighScore", 0);
-        float oldTime = PlayerPrefs.GetFloat("BestTime", float.MaxValue);
+        int oldScore = PlayerPrefs.GetInt(KeyHighScore, 0);
+        float oldTime = PlayerPrefs.GetFloat(KeyBestTime, float.MaxValue);
 
         bool better = (curScore > oldScore) || (curScore == oldScore && curTime < oldTime);
         if (better)
         {
-            PlayerPrefs.SetInt("HighScore", curScore);
-            PlayerPrefs.SetFloat("BestTime", curTime);
+            PlayerPrefs.SetInt(KeyHighScore, curScore);
+            PlayerPrefs.SetFloat(KeyBestTime, curTime);
             PlayerPrefs.Save();
         }
     }
 
-    IEnumerator CoBackToStart()
+    // =========================================================
+    //                Dead 计数（用于 BGM 兜底）
+    // =========================================================
+    public void NotifyGhostBecameDead() { deadCount++; }
+
+    public void NotifyGhostRevived()
     {
-        yield return new WaitForSeconds(3f);
-        if (!string.IsNullOrEmpty(startScene))
+        deadCount = Mathf.Max(0, deadCount - 1);
+        if (deadCount == 0)
         {
-            SceneManager.LoadScene(startScene);
+            // 所有幽灵都非 Dead：根据是否仍处于受惊，兜底切回对应 BGM
+            if (ScaredTimeLeft() > 0f && audioMgr && scaredMusic)
+                audioMgr.PlayBgm(scaredMusic, true);
+            else if (audioMgr && normalMusic)
+                audioMgr.PlayBgm(normalMusic, true);
         }
     }
 }

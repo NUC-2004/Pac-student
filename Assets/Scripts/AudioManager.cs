@@ -1,20 +1,17 @@
 using UnityEngine;
 
-public class GameAudioManager : MonoBehaviour
+public class AudioManager : MonoBehaviour
 {
-    public static GameAudioManager I { get; private set; }
+    public static AudioManager I;
 
-    [Header("Music")]
-    public AudioSource musicSource;   // ±≥æ∞“Ù¿÷
-    public AudioClip levelMusic;      // ≥£πÊBGM
-    public AudioClip scaredMusic;     // ”ƒ¡È ‹æ™BGM
+    [Header("Sources")]
+    public AudioSource bgmSource;   // —≠ª∑≤•∑≈BGM£®2D£©
+    public AudioSource sfxSource;   // ≤•∑≈∂Ã“Ù–ß£®2D£©
 
-    [Header("SFX")]
-    public AudioSource sfxSource;     // “Ù–ßAudioSource
-    public AudioClip stepClip;        // ◊ﬂ¬∑°∞ﬂ«ﬂ’°±
-    public AudioClip pelletClip;      // ≥‘∆’Õ®∂π
-    public AudioClip cherryClip;      // ≥‘”£Ã“
-    public AudioClip powerPelletClip; // ≥‘ƒ‹¡ø∂π
+    [Header("SFX Clips")]
+    public AudioClip pelletSfx;     // ≥‘–°∂π
+    public AudioClip powerPelletSfx;// ≥‘¥Û¡¶ÕË
+    public AudioClip eatGhostSfx;   // ≥‘”ƒ¡È
 
     void Awake()
     {
@@ -23,43 +20,23 @@ public class GameAudioManager : MonoBehaviour
         DontDestroyOnLoad(gameObject);
     }
 
-    // ===== BGM =====
-    public void PlayLevelMusic()
+    // ---- BGM ----
+    public void PlayBgm(AudioClip clip, bool loop = true)
     {
-        if (!musicSource || !levelMusic) return;
-        if (musicSource.clip == levelMusic && musicSource.isPlaying) return;
-        musicSource.loop = true;
-        musicSource.clip = levelMusic;
-        musicSource.Play();
+        if (!bgmSource) return;
+        if (bgmSource.clip == clip && bgmSource.isPlaying) return;
+        bgmSource.loop = loop;
+        bgmSource.clip = clip;
+        bgmSource.Play();
     }
 
-    public void PlayScaredMusic()
-    {
-        if (!musicSource || !scaredMusic) return;
-        if (musicSource.clip == scaredMusic && musicSource.isPlaying) return;
-        musicSource.loop = true;
-        musicSource.clip = scaredMusic;
-        musicSource.Play();
-    }
+    // ---- SFX ----
+    public void PlayPellet() { PlaySfx(pelletSfx); }
+    public void PlayPowerPellet() { PlaySfx(powerPelletSfx); }
+    public void PlayEatGhost() { PlaySfx(eatGhostSfx); }
 
-    // ===== SFX =====
-    public void PlayMoveTick()
+    public void PlaySfx(AudioClip clip, float vol = 1f)
     {
-        if (sfxSource && stepClip) sfxSource.PlayOneShot(stepClip);
-    }
-
-    public void PlayPellet()
-    {
-        if (sfxSource && pelletClip) sfxSource.PlayOneShot(pelletClip);
-    }
-
-    public void PlayCherry()
-    {
-        if (sfxSource && cherryClip) sfxSource.PlayOneShot(cherryClip);
-    }
-
-    public void PlayPowerPellet()
-    {
-        if (sfxSource && powerPelletClip) sfxSource.PlayOneShot(powerPelletClip);
+        if (sfxSource && clip) sfxSource.PlayOneShot(clip, vol);
     }
 }

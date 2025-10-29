@@ -18,5 +18,6 @@ public class PowerPelletPickup : MonoBehaviour
 
         // 销毁大力丸本体
         Destroy(gameObject);
+        AudioManager.I?.PlayPowerPellet();
     }
 }
