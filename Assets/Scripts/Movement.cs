@@ -10,6 +10,9 @@ public class PacStudentController : MonoBehaviour
     public float speed = 4f;
     public LayerMask wallMask;
 
+    // 允许/禁止玩家控制（外部可改）
+    public bool controlsEnabled = true;
+
     public Vector2Int lastInput = Vector2Int.zero;
     public Vector2Int currentInput = Vector2Int.zero;
 
@@ -21,6 +24,14 @@ public class PacStudentController : MonoBehaviour
     readonly int ID_IsMoving = Animator.StringToHash("IsMoving");
     readonly int ID_FaceX = Animator.StringToHash("FaceX");
     readonly int ID_FaceY = Animator.StringToHash("FaceY");
+
+    // ===== 撞墙反馈（新增） =====
+    [Header("Wall Bump Feedback")]
+    public AudioSource sfx;           // 拖到 Player 上的 SFX AudioSource
+    public AudioClip wallBumpClip;    // 撞墙音效
+    public GameObject pfxWallHit;     // 撞墙粒子 prefab（如 Pfx_WallHit）
+    public float bumpCooldown = 0.08f;// 防抖时间，避免连续触发
+    float lastBumpTime = -999f;       // 上次触发时间
 
     void Awake()
     {
@@ -37,6 +48,9 @@ public class PacStudentController : MonoBehaviour
 
     void Update()
     {
+        // 禁用控制时，不读输入也不移动
+        if (!controlsEnabled) { SetMoving(false); return; }
+
         if (Input.GetKeyDown(KeyCode.W)) lastInput = Vector2Int.up;
         if (Input.GetKeyDown(KeyCode.S)) lastInput = Vector2Int.down;
         if (Input.GetKeyDown(KeyCode.A)) lastInput = Vector2Int.left;
@@ -68,7 +82,21 @@ public class PacStudentController : MonoBehaviour
         Vector3 center = SnapToCell(transform.position);
         transform.position = center;
 
-        if (!CanWalk(center, dir)) return false;
+        // 如果这一格朝该方向不可走，触发一次“撞墙反馈”
+        if (!CanWalk(center, dir))
+        {
+            if (Time.time - lastBumpTime > bumpCooldown)
+            {
+                lastBumpTime = Time.time;
+
+                // 撞击点 = 当前格中心 + 朝向 * 半格（靠近墙）
+                Vector3 hitPos = center + (Vector3)(Vector2)dir * (cellSize * 0.5f);
+
+                if (pfxWallHit) Instantiate(pfxWallHit, hitPos, Quaternion.identity);
+                if (sfx && wallBumpClip) sfx.PlayOneShot(wallBumpClip);
+            }
+            return false;
+        }
 
         fromPos = center;
         toPos = center + (Vector3)(Vector2)dir * cellSize;
@@ -88,21 +116,22 @@ public class PacStudentController : MonoBehaviour
         return !Physics2D.OverlapBox(toCenter, new Vector2(box, box), 0f, wallMask);
     }
 
-    Vector3 SnapToCell(Vector3 p)
+    // ======= 网格工具（public 便于外部调用） =======
+    public Vector3 SnapToCell(Vector3 p)
     {
         float rx = Mathf.Round((p.x - gridOrigin.x) / cellSize) * cellSize + gridOrigin.x;
         float ry = Mathf.Round((p.y - gridOrigin.y) / cellSize) * cellSize + gridOrigin.y;
         return new Vector3(rx, ry, p.z);
     }
 
-    Vector2Int WorldToCell(Vector3 p)
+    public Vector2Int WorldToCell(Vector3 p)
     {
         int cx = Mathf.RoundToInt((p.x - gridOrigin.x) / cellSize);
         int cy = Mathf.RoundToInt((p.y - gridOrigin.y) / cellSize);
         return new Vector2Int(cx, cy);
     }
 
-    Vector3 CellToWorld(Vector2Int c)
+    public Vector3 CellToWorld(Vector2Int c)
     {
         return new Vector3(c.x * cellSize + gridOrigin.x, c.y * cellSize + gridOrigin.y, 0f);
     }
@@ -113,13 +142,32 @@ public class PacStudentController : MonoBehaviour
         int y = Mathf.Clamp(d.y, -1, 1);
         if (y != 0) x = 0;
         if (x != 0) y = 0;
-        animator.SetFloat(ID_FaceX, x);
-        animator.SetFloat(ID_FaceY, y);
+        if (animator)
+        {
+            animator.SetFloat(ID_FaceX, x);
+            animator.SetFloat(ID_FaceY, y);
+        }
     }
 
     void SetMoving(bool on)
     {
         if (!animator) return;
         animator.SetBool(ID_IsMoving, on);
+    }
+
+    // ====== 传送门接口 ======
+    // 瞬移到 worldPos，并让角色朝 outDir 继续移动；清空当前 lerp。
+    public void TeleportTo(Vector3 worldPos, Vector2Int outDir)
+    {
+        transform.position = SnapToCell(worldPos); // 对齐网格
+        lastInput = outDir;
+        currentInput = outDir;
+
+        // 取消当前插值，准备从新格中心开始下一步
+        isMoving = false;
+        t = 0f;
+
+        SetFace(outDir);
+        SetMoving(false);
     }
 }
